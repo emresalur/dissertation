@@ -1,0 +1,39 @@
+body {
+    background-color: rgb(255, 255, 255);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: medium;
+    line-height: 1.5;
+    color: #221f1f;
+    margin: 10px 15px 20px 15px;
+    padding: 10px 15px 20px 15px;
+    max-width: 1200px;
+    margin: 0 auto;
+    transition: background-color 0.3s ease-in-out;
+    box-sizing: border-box;
+}
+
+.container {
+    background-color: rgb(189, 197, 196);
+    border: 10px solid #3c3c3c;
+    border-radius: 10px;
+    padding: 10px 15px 20px 15px;
+    margin: 10px 15px 20px 15px;
+    box-sizing: border-box;
+}
+
+.pie.chart {
+    transform: scale(0.75);
+}
+
+.bar.chart {
+    margin-top: 100px;
+    margin-bottom: 10px;
+    transform: scale(0.75);
+
+}
+
+.Chart.Module {
+    margin-top: 100px;
+    margin-bottom: 10px;
+    transform: scale(0.75);
+}

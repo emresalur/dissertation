@@ -1,0 +1,28 @@
+The user guide is quite simple. There are four main classes: financial model, financial agent,
+asset, and visualization. The visualization class includes the launch server part, so the website
+launches once the code is run on an IDE that supports Python. Then the following website
+is launched with the following URL: ”http://127.0.0.1:8523/”. 
+
+To run the file, make sure to install the required files correctly. First, create a virtual environment but make sure it is set
+up with Python 3. To install Mesa, run this on the terminal.
+
+$ pip install mesa
+
+This will install Mesa and dependencies that are not present in the setup yet. Additional dependencies can be found in the 
+examples/boltzmann wealth model/requirements.txt file, which can be installed directly form the github repository by running 
+the code below on the terminal. This will install the dependencies regarding jupyter, matplotlib, mesa, and numpy.
+
+$ pip install -r https://raw.githubusercontent.com/projectmesa/mesa/main/examples/boltzmann_wealth_model/requirements.txt76
+
+The main buttons are at the top right corner: start, step, and reset. Step walks through
+the iteration one step at a time. This allows the user to see the changes in more detail. The
+start method runs the simulation and while the server is running the start button becomes a
+stop button. The sliders and drop-down box at the left allow the user to customize the model.
+To apply the changes, the user needs to press the reset button at the top right which will set
+the current iterations to zero. The frames per second part set the pace of the simulation. If
+the user wants to see steady growth, three is a good number. If the user wants to see the later
+stages, the frames per second can be increased to twenty. The simulation will most probably
+slow down after a certain amount of iterations. The maximum value was 830 iterations. The
+step function can be used afterwards however the agents will stop moving. By scrolling down,
+the user can see all the different types of charts with different values. In case there is an error,
+the best method is to press reset, reload the URL, or run the visualization python file once again.

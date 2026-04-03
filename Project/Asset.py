@@ -7,12 +7,3 @@ class Asset:
 
     def __str__(self):
         return f"{self.name} (qty: {self.quantity})"
-
-    def get_name(self):
-        return self.name
-
-    def get_quantity(self):
-        return self.quantity
-
-    def set_quantity(self, quantity):
-        self.quantity = quantity

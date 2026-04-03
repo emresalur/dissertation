@@ -26,17 +26,15 @@ python Project/Data/Data.py  # or any script in Data/
 
 All simulation code lives in `Project/`. The core classes:
 
+**TradingStrategy** (`strategies.py`) — Abstract base class defining the Strategy pattern. Each strategy implements `execute(agent, other)`. Concrete strategies: `AssetTradingStrategy`, `WealthTradingStrategy`, `MeanReversionStrategy`, `MomentumStrategy`, `CopycatStrategy`, `RiskAverseStrategy`, `AdaptiveStrategy`. This module is the single source of truth for strategy names, colors, and abbreviations (`STRATEGY_NAMES`, `STRATEGY_COLORS`, `STRATEGY_ABBREV`). Use `create_strategy(name, initial_wealth)` to instantiate.
+
 **Market** (`Market.py`) — Centralized price store with a simple order book. Holds canonical prices, price history, supply/demand per asset type. Agents read prices from the market (not from their own asset instances). Supports `submit_order()` / `clear_orders()` for price discovery, and `update_price()` for direct changes (events, fluctuations).
 
 **MarketEvent** (`MarketEvent.py`) — Represents market-wide events (crashes, booms, volatility spikes). Each event has a type, magnitude, duration, and optional target assets. Activated at simulation start via UI dropdown. Applied per-tick in `FinancialModel.step()`.
 
-**Asset** (`Asset.py`) — Lightweight holding record: just `name` and `quantity`. Price is always looked up via `model.market.get_price(asset.name)`.
+**Asset** (`Asset.py`) — Lightweight holding record: just `name` and `quantity`. Price is always looked up via `model.market.get_price(asset.name)`. Uses direct attribute access (no getters/setters).
 
-**FinancialAgent** (`FinancialAgent.py`) — Extends `mesa.Agent`. Each agent has wealth, an individual strategy, mood, and a list of Assets. On each step: `move()` to a neighboring cell, then `trade()` with a cellmate. Trading strategy dispatched by string:
-- `"Asset Trading"` — buy a random asset from another agent at market price
-- `"Wealth Trading"` — transfer a random amount of wealth
-- `"Mean Reversion"` — buy when market price deviates from historical mean beyond threshold
-- `"Momentum"` — buy on uptrend, sell on downtrend (uses market price history)
+**FinancialAgent** (`FinancialAgent.py`) — Extends `mesa.Agent`. Each agent has wealth, a strategy object, mood, and a list of Assets. On each step: `move()` to a neighboring cell, then `trade()` delegates to `self.strategy.execute(self, other)`. Provides shared trade helpers `execute_buy(other, asset)` and `execute_sell(other, asset)` that strategies call. Use `agent.strategy_name` for the display string.
 
 **FinancialModel** (`FinancialModel.py`) — Extends `mesa.Model`. Creates `MultiGrid`, `RandomActivation` scheduler, `Market`, and 9 `DataCollector` instances. Key parameters:
 - `strategy_mode`: single strategy for all agents, or "Random Mix" / "Equal Distribution" for per-agent strategies
@@ -48,6 +46,7 @@ All simulation code lives in `Project/`. The core classes:
 
 ## Key Design Notes
 
+- **Strategy pattern**: Trading logic lives in `strategies.py`, not in `FinancialAgent`. Each strategy owns its own state (e.g. Q-tables in `AdaptiveStrategy`, fear level in `RiskAverseStrategy`). To add a new strategy: subclass `TradingStrategy`, add it to `STRATEGY_NAMES`, `STRATEGY_COLORS`, `STRATEGY_ABBREV`, and `create_strategy()`.
 - Agents can have different strategies in the same simulation via "Random Mix" or "Equal Distribution" modes
 - The Market is the single source of truth for prices — agents never store prices locally
 - Price fluctuations are applied once per model step, weighted by the proportion of Mean Reversion vs Momentum agents

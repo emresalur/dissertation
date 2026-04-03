@@ -5,11 +5,11 @@ from mesa.space import MultiGrid
 from mesa.datacollection import DataCollector
 from Market import Market
 from MarketEvent import MarketEvent
+from strategies import STRATEGY_NAMES
 import numpy as np
 
 
-STRATEGIES = ["Asset Trading", "Wealth Trading", "Mean Reversion", "Momentum",
-              "Copycat", "Risk Averse", "Adaptive"]
+STRATEGIES = STRATEGY_NAMES
 
 PREDEFINED_EVENTS = {
     "Market Crash": {"event_type": "crash", "magnitude": 0.5, "duration": 10},
@@ -117,8 +117,8 @@ class FinancialModel(Model):
             return
 
         # Count strategies in use
-        mr_count = sum(1 for a in self.schedule.agents if a.strategy == "Mean Reversion")
-        mm_count = sum(1 for a in self.schedule.agents if a.strategy == "Momentum")
+        mr_count = sum(1 for a in self.schedule.agents if a.strategy_name == "Mean Reversion")
+        mm_count = sum(1 for a in self.schedule.agents if a.strategy_name == "Momentum")
         total = self.num_agents
 
         if total == 0:
@@ -139,7 +139,7 @@ class FinancialModel(Model):
     def create_agents(self, number_of_agents, initial_wealth):
         for i in range(self.num_agents):
             strategy = self._assign_strategy(i)
-            a = FinancialAgent(i, self, initial_wealth, strategy, 1)
+            a = FinancialAgent(i, self, initial_wealth, strategy, "neutral")
             self.schedule.add(a)
 
             x = self.random.randrange(self.grid.width)
@@ -158,11 +158,11 @@ class FinancialModel(Model):
                 {"Label": f"Agent {agent.unique_id}", "Color": "blue"})
         return labels_and_colors
 
-    def compute_gini(model):
+    def compute_gini(self):
         """Compute the Gini coefficient of the model."""
-        agent_wealths = [agent.wealth for agent in model.schedule.agents]
+        agent_wealths = [agent.wealth for agent in self.schedule.agents]
         x = sorted(agent_wealths)
-        N = model.num_agents
+        N = self.num_agents
         total = sum(x)
         if N == 0 or total == 0:
             return 0
@@ -175,13 +175,11 @@ class FinancialModel(Model):
     def compute_avg_wealth(self):
         return np.mean([agent.wealth for agent in self.schedule.agents])
 
-    @staticmethod
-    def current_wealthy_agents(model) -> int:
-        return sum([1 for agent in model.schedule.agents if agent.wealth > 0])
+    def current_wealthy_agents(self) -> int:
+        return sum(1 for agent in self.schedule.agents if agent.wealth > 0)
 
-    @staticmethod
-    def current_non_wealthy_agents(model) -> int:
-        return sum([1 for agent in model.schedule.agents if agent.wealth <= 0])
+    def current_non_wealthy_agents(self) -> int:
+        return sum(1 for agent in self.schedule.agents if agent.wealth <= 0)
 
     def compute_total_wealth(self):
         return sum([agent.wealth for agent in self.schedule.agents])
@@ -245,7 +243,7 @@ class FinancialModel(Model):
         strategy_reporters = {}
         for strat in STRATEGIES:
             strategy_reporters[strat] = (
-                lambda m, s=strat: sum(1 for a in m.schedule.agents if a.strategy == s)
+                lambda m, s=strat: sum(1 for a in m.schedule.agents if a.strategy_name == s)
             )
         self.datacollector_strategies = DataCollector(
             model_reporters=strategy_reporters

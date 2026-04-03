@@ -4,6 +4,7 @@ from mesa.visualization.ModularVisualization import ModularServer, Visualization
 from mesa.visualization.UserParam import UserSettableParameter
 from FinancialModel import FinancialModel
 from FinancialAgent import FinancialAgent
+from strategies import STRATEGY_COLORS, STRATEGY_ABBREV
 
 
 class CustomCSS(VisualizationElement):
@@ -13,26 +14,6 @@ class CustomCSS(VisualizationElement):
 
 SIZE_OF_CANVAS_IN_PIXELS_X = 700
 SIZE_OF_CANVAS_IN_PIXELS_Y = 700
-
-STRATEGY_COLORS = {
-    "Asset Trading": "#2ecc71",     # green
-    "Wealth Trading": "#3498db",    # blue
-    "Mean Reversion": "#e67e22",    # orange
-    "Momentum": "#9b59b6",          # purple
-    "Copycat": "#e74c3c",           # red
-    "Risk Averse": "#1abc9c",       # teal
-    "Adaptive": "#f39c12",          # amber
-}
-
-STRATEGY_ABBREV = {
-    "Asset Trading": "AT",
-    "Wealth Trading": "WT",
-    "Mean Reversion": "MR",
-    "Momentum": "MM",
-    "Copycat": "CC",
-    "Risk Averse": "RA",
-    "Adaptive": "AD",
-}
 
 simulation_params = {
     "number_of_agents": UserSettableParameter(
@@ -118,7 +99,7 @@ def agent_portrayal(agent):
     """Returns the portrayal of the given agent."""
 
     radius = wealth_to_radius(agent.wealth)
-    strategy = agent.get_strategy()
+    strategy = agent.strategy_name
     abbrev = STRATEGY_ABBREV.get(strategy, "?")
     color = STRATEGY_COLORS.get(strategy, "gray")
 

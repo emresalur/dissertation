@@ -68,10 +68,10 @@ for i in range(n_steps):
     row["wealthiest"] = model.get_wealthiest_agent()
     row["total_trades"] = model.compute_total_trades()
     row["total_interactions"] = model.compute_total_interactions()
-    row["wealthy_count"] = model.current_wealthy_agents(model)
-    row["broke_count"] = model.current_non_wealthy_agents(model)
+    row["wealthy_count"] = model.current_wealthy_agents()
+    row["broke_count"] = model.current_non_wealthy_agents()
     for s in STRATEGIES:
-        row[s] = sum(1 for a in model.schedule.agents if a.strategy == s)
+        row[s] = sum(1 for a in model.schedule.agents if a.strategy_name == s)
     step_data.append(row)
 
     if (i + 1) % max(1, n_steps // 20) == 0:
@@ -85,7 +85,7 @@ df = pd.DataFrame(step_data)
 for a in model.schedule.agents:
     agent_snapshots.append({
         "ID": a.unique_id,
-        "Strategy": a.strategy,
+        "Strategy": a.strategy_name,
         "Wealth": round(a.wealth, 2),
         "Net Worth": round(a.net_worth, 2),
         "Assets": len(a.assets),

@@ -7,6 +7,8 @@ class FinancialAgent(Agent):
 
     """An agent with fixed initial wealth."""
 
+    _AGENT_PREFIX = "Agent "
+
     def __init__(self, unique_id: int, model, wealth: int, strategy: str, mood: str):
 
         super().__init__(unique_id, model)
@@ -156,8 +158,8 @@ class FinancialAgent(Agent):
                 other.wealth += wealth_to_trade
                 self.wealth -= wealth_to_trade
 
-                print("Agent " + str(self.unique_id) + " traded " + str(wealth_to_trade) +
-                      " units of wealth with Agent " + str(other.unique_id) + ".")
+                print(self._AGENT_PREFIX + str(self.unique_id) + " traded " + str(wealth_to_trade) +
+                      " units of wealth with " + self._AGENT_PREFIX + str(other.unique_id) + ".")
 
                 self.trades_completed += 1
 
@@ -258,24 +260,19 @@ class FinancialAgent(Agent):
 
     # ---- RISK AVERSE STRATEGY ----
 
-    def risk_averse_trade(self, other):
-        """Trade conservatively — reduce activity when losing wealth."""
-        # Update wealth history and fear level
+    def _update_fear(self):
+        """Update wealth history, fear level, and mood."""
         self.wealth_history.append(self.wealth)
         if len(self.wealth_history) > self.risk_window:
             self.wealth_history = self.wealth_history[-self.risk_window:]
 
-        # Calculate fear: how much wealth lost recently
         if len(self.wealth_history) >= 2:
             recent_change = self.wealth - self.wealth_history[0]
             if recent_change < 0:
-                # Losing money — fear increases proportional to loss
                 self.fear_level = min(1.0, abs(recent_change) / max(self.initial_wealth, 1))
             else:
-                # Gaining — fear decays
                 self.fear_level = max(0.0, self.fear_level - 0.1)
 
-        # Update mood based on fear
         if self.fear_level > 0.7:
             self.mood = "fearful"
         elif self.fear_level > 0.3:
@@ -283,41 +280,55 @@ class FinancialAgent(Agent):
         else:
             self.mood = "confident"
 
+    def _risk_averse_buy(self, other, asset_to_trade, asset_price, mean_price):
+        """Buy if price is at or below mean (conservative)."""
+        if asset_price <= mean_price and self.wealth >= asset_price:
+            self.assets.append(asset_to_trade)
+            other.assets.remove(asset_to_trade)
+            other.wealth += asset_price
+            self.wealth -= asset_price
+
+            self.model.market.submit_order(
+                self.unique_id, asset_to_trade.name, "bid", asset_price)
+            self.confirm_trade(other, asset_to_trade)
+            return True
+        return False
+
+    def _risk_averse_sell(self, other, mean_price):
+        """Sell if price is well above mean (take profit)."""
+        if len(self.assets) == 0:
+            return
+        asset_to_sell = self.random.choice(self.assets)
+        sell_price = self.model.market.get_price(asset_to_sell.name)
+
+        if other.wealth >= sell_price:
+            other.assets.append(asset_to_sell)
+            self.assets.remove(asset_to_sell)
+            self.wealth += sell_price
+            other.wealth -= sell_price
+
+            self.model.market.submit_order(
+                other.unique_id, asset_to_sell.name, "ask", sell_price)
+            self.trades_completed += 1
+
+    def risk_averse_trade(self, other):
+        """Trade conservatively — reduce activity when losing wealth."""
+        self._update_fear()
+
         # Fear makes agent skip trades probabilistically
         if random.random() < self.fear_level:
-            return  # Too scared to trade
+            return
 
-        # When confident, look for bargains (buy below mean)
-        if len(other.assets) > 0:
-            asset_to_trade = self.random.choice(other.assets)
-            asset_price = self.model.market.get_price(asset_to_trade.name)
-            mean_price = self.model.market.get_mean_price(asset_to_trade.name)
+        if len(other.assets) == 0:
+            return
 
-            # Only buy if price is at or below mean (conservative)
-            if asset_price <= mean_price and self.wealth >= asset_price:
-                self.assets.append(asset_to_trade)
-                other.assets.remove(asset_to_trade)
-                other.wealth += asset_price
-                self.wealth -= asset_price
+        asset_to_trade = self.random.choice(other.assets)
+        asset_price = self.model.market.get_price(asset_to_trade.name)
+        mean_price = self.model.market.get_mean_price(asset_to_trade.name)
 
-                self.model.market.submit_order(
-                    self.unique_id, asset_to_trade.name, "bid", asset_price)
-                self.confirm_trade(other, asset_to_trade)
-
-            # Sell if price is well above mean (take profit)
-            elif asset_price > mean_price * 1.2 and len(self.assets) > 0:
-                asset_to_sell = self.random.choice(self.assets)
-                sell_price = self.model.market.get_price(asset_to_sell.name)
-
-                if other.wealth >= sell_price:
-                    other.assets.append(asset_to_sell)
-                    self.assets.remove(asset_to_sell)
-                    self.wealth += sell_price
-                    other.wealth -= sell_price
-
-                    self.model.market.submit_order(
-                        other.unique_id, asset_to_sell.name, "ask", sell_price)
-                    self.trades_completed += 1
+        if not self._risk_averse_buy(other, asset_to_trade, asset_price, mean_price):
+            if asset_price > mean_price * 1.2:
+                self._risk_averse_sell(other, mean_price)
 
     # ---- ADAPTIVE (Q-LEARNING) STRATEGY ----
 
@@ -418,12 +429,12 @@ class FinancialAgent(Agent):
         # action == "hold": do nothing — agent waits for better conditions
 
     def print_interest(self, other, asset):
-        print("Agent " + str(self.unique_id) + " is interested in trading for " +
+        print(self._AGENT_PREFIX + str(self.unique_id) + " is interested in trading for " +
               str(asset.get_name()) + " with Agent " + str(other.unique_id) + ".")
 
     def confirm_trade(self, other, asset):
         asset_price = self.model.market.get_price(asset.name)
-        print("Agent " + str(self.unique_id) + " traded " + str(asset.get_name()) + " with Agent " +
+        print(self._AGENT_PREFIX + str(self.unique_id) + " traded " + str(asset.get_name()) + " with Agent " +
               str(other.unique_id) + " for " + str(asset_price) + " units of wealth.")
         self.trades_completed += 1
 

@@ -1,6 +1,5 @@
 from mesa import Agent
 import random
-import math
 from Asset import Asset
 
 

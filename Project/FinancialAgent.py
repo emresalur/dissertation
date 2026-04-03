@@ -49,6 +49,25 @@ class FinancialAgent(Agent):
         self.last_action = None
         self.last_wealth = wealth
 
+        # Portfolio tracking
+        self.fees_paid = 0.0
+
+    @property
+    def net_worth(self):
+        """Cash + market value of all held assets."""
+        asset_value = sum(
+            self.model.market.get_price(a.name) * a.quantity
+            for a in self.assets
+        )
+        return self.wealth + asset_value
+
+    def _pay_fee(self, trade_value):
+        """Deduct transaction fee from wealth. Returns the fee paid."""
+        fee = self.model.market.calculate_fee(trade_value)
+        self.wealth -= fee
+        self.fees_paid += fee
+        return fee
+
     def step(self):
         """A model step. Move, then trade with neighbors."""
         self.move()
@@ -116,16 +135,15 @@ class FinancialAgent(Agent):
         if len(other.assets) > 0:
             asset_to_trade = self.random.choice(other.assets)
             asset_price = self.model.market.get_price(asset_to_trade.name)
+            fee = self.model.market.transaction_cost * asset_price
 
-            self.print_interest(other, asset_to_trade)
-
-            if self.wealth >= asset_price:
+            if self.wealth >= asset_price + fee:
                 self.assets.append(asset_to_trade)
                 other.assets.remove(asset_to_trade)
                 other.wealth += asset_price
                 self.wealth -= asset_price
+                self._pay_fee(asset_price)
 
-                # Submit order to market for price discovery
                 self.model.market.submit_order(
                     self.unique_id, asset_to_trade.name, "bid", asset_price)
 

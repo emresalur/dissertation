@@ -101,6 +101,11 @@ class FinancialModel(Model):
         for asset_name in self.market.get_asset_names():
             self.market.clear_orders(asset_name)
 
+        # Close candles every 5 steps for OHLC chart
+        if self.schedule.time > 0 and self.schedule.time % 5 == 0:
+            for asset_name in self.market.get_asset_names():
+                self.market.close_candle(asset_name)
+
         # Apply active market events
         self.events = [e for e in self.events if e.tick(self.market)]
 

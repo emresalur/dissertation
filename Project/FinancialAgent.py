@@ -1,5 +1,6 @@
 from mesa import Agent
 import random
+import math
 from Asset import Asset
 
 
@@ -9,68 +10,64 @@ class FinancialAgent(Agent):
 
     def __init__(self, unique_id: int, model, wealth: int, strategy: str, mood: str):
 
-        # Set the agent's unique_id and model.
         super().__init__(unique_id, model)
 
-        # Set the agent's wealth.
         self.wealth = wealth
-
-        # Set the agent's strategy.
+        self.initial_wealth = wealth
         self.strategy = strategy
-
-        # Set the agent's mood.
         self.mood = mood
-
-        # Create an empty list for activities history
         self.history = []
-
-        # Define an empty list for the agent's assets.
         self.assets = []
 
-        # Add gold to the agent's assets.
-        self.assets.append(Asset("Gold", 10, 1))
+        # Each agent starts with 1 unit of each asset defined in the market
+        for asset_name in self.model.market.get_asset_names():
+            self.assets.append(Asset(asset_name, 1))
 
-        # Add silver to the agent's assets.
-        self.assets.append(Asset("Silver", 5, 1))
-
-        # Set the mean reversion threshold
         self.mean_reversion_threshold = 0.2
-
-        # Set the number of trades completed to 0.
         self.trades_completed = 0
-
-        # Set the number of interactions to 0.
         self.interactions = 0
+
+        # --- Smart agent state ---
+
+        # Risk Averse: tracks recent wealth changes over a sliding window
+        self.wealth_history = [wealth]
+        self.risk_window = 10
+        self.fear_level = 0.0  # 0 = calm, 1 = maximum fear
+
+        # Copycat: remembers which strategy it copied and when
+        self.original_strategy = strategy
+        self.copy_cooldown = 0
+
+        # Adaptive (Q-learning): learns which action works best
+        # States: "winning" (wealth > initial), "losing" (wealth < initial), "neutral"
+        # Actions: "buy", "sell", "hold"
+        self.q_table = {}
+        self.learning_rate = 0.1
+        self.discount_factor = 0.9
+        self.epsilon = 0.2  # exploration rate
+        self.last_state = None
+        self.last_action = None
+        self.last_wealth = wealth
 
     def step(self):
         """A model step. Move, then trade with neighbors."""
-
         self.move()
-
         if self.wealth > 0:
-
             self.trade()
 
     def move(self):
         """Move the agent to a random empty cell."""
-
-        # Get the position before moving.
         old_pos = self.pos
 
-        # Get the neighborhood of the agent.
         possible_steps = self.model.grid.get_neighborhood(
             self.pos,
             moore=True,
             include_center=False
         )
 
-        # Choose a random direction out of the possible steps.
         new_pos = self.random.choice(possible_steps)
-
-        # Move the agent to the new position.
         self.model.grid.move_agent(self, new_pos)
 
-        # Add the activity to the agent's history.
         self.history.append({'time': self.model.schedule.time,
                              'activity': 'move',
                              'old_pos': old_pos,
@@ -78,45 +75,37 @@ class FinancialAgent(Agent):
 
     def trade(self):
         """Trade with a random agent in the same cell."""
-
-        # Get the agents in the same cell.
         cellmates = self.model.grid.get_cell_list_contents([self.pos])
 
-        # If there is more than one agent in the cell, trade with one of them.
         if len(cellmates) > 1:
-
-            # Choose a random agent to trade with.
             other = self.random.choice(cellmates)
 
-            # Keep choosing until the other agent is not the same as the current agent
             while (other.unique_id == self.unique_id):
-
                 other = self.random.choice(cellmates)
 
-            # Increment the number of interactions.
             self.interactions += 1
 
-            if self.get_strategy() == "Asset Trading":
-
+            if self.strategy == "Asset Trading":
                 self.asset_trade(other)
 
-            elif self.get_strategy() == "Wealth Trading":
-
+            elif self.strategy == "Wealth Trading":
                 self.wealth_trade(other)
 
-            elif self.get_strategy() == "Mean Reversion":
-
-                self.set_price_fluctuation(-0.1, 10)
-
+            elif self.strategy == "Mean Reversion":
                 self.mean_reversion(other)
 
-            elif self.get_strategy() == "Momentum":
-                
-                self.set_price_fluctuation(0.05, 10)
-                
+            elif self.strategy == "Momentum":
                 self.momentum_trade(other)
 
-            # Add the activity to the agent's history.
+            elif self.strategy == "Copycat":
+                self.copycat_trade(other)
+
+            elif self.strategy == "Risk Averse":
+                self.risk_averse_trade(other)
+
+            elif self.strategy == "Adaptive":
+                self.adaptive_trade(other)
+
             self.history.append({'time': self.model.schedule.time,
                                  'activity': 'trade',
                                  'other': other.unique_id,
@@ -124,303 +113,344 @@ class FinancialAgent(Agent):
                                  'other_wealth': other.wealth})
 
     def asset_trade(self, other):
-
-        # Check if the other agent has any assets.
         if len(other.assets) > 0:
-
-            # Choose a random asset to trade.
             asset_to_trade = self.random.choice(other.assets)
+            asset_price = self.model.market.get_price(asset_to_trade.name)
 
-            # Print the asset to trade.
             self.print_interest(other, asset_to_trade)
 
-            # Get the price of the asset.
-            asset_price = asset_to_trade.get_price()
-
-            # If the agent has enough wealth to trade for the asset, trade.
             if self.wealth >= asset_price:
-
-                # Take the asset from the other agent.
                 self.assets.append(asset_to_trade)
-
-                # Remove the asset from the other agent.
                 other.assets.remove(asset_to_trade)
-
-                # Give the other agent the price of the asset.
                 other.wealth += asset_price
-
-                # Take the price of the asset from the agent.
                 self.wealth -= asset_price
 
-                # Print the trade.
+                # Submit order to market for price discovery
+                self.model.market.submit_order(
+                    self.unique_id, asset_to_trade.name, "bid", asset_price)
+
                 self.confirm_trade(other, asset_to_trade)
 
     def wealth_trade(self, other):
+        if other.wealth > 0 and self.wealth >= 1:
+            wealth_to_trade = self.random.randint(1, int(self.wealth))
 
-        # Check if the other agent has any wealth.
-        if other.wealth > 0:
-
-            # Choose a random amount of wealth to trade.
-            wealth_to_trade = self.random.randint(1, self.wealth)
-
-            # If the agent has enough wealth to trade, trade.
             if self.wealth >= wealth_to_trade:
-
-                # Give the other agent one wealth.
                 other.wealth += wealth_to_trade
-
-                # Take the wealth from the agent.
                 self.wealth -= wealth_to_trade
 
-                # Print the trade.
                 print("Agent " + str(self.unique_id) + " traded " + str(wealth_to_trade) +
                       " units of wealth with Agent " + str(other.unique_id) + ".")
 
-                # Add the trade to the number of trades completed.
                 self.trades_completed += 1
 
     def mean_reversion(self, other):
-        """ Implements mean reversion strategy. """
-
-        # Check if the other agent has any assets.
-
+        """Implements mean reversion strategy using shared market prices."""
         if len(other.assets) > 0:
-
-            # Choose a random asset to trade.
             asset_to_trade = self.random.choice(other.assets)
 
-            # Print the asset to trade.
             self.print_interest(other, asset_to_trade)
 
-            # Get the price of the asset.
-            asset_price = asset_to_trade.get_price()
-
-            print("Asset price: " + str(asset_price))
-
-            # Calculate the mean price of the asset.
-            mean_price = asset_to_trade.get_mean_price()
-
-            print("Mean price: " + str(mean_price))
-
-            # Calculate the difference between the asset price and the mean price.
+            asset_price = self.model.market.get_price(asset_to_trade.name)
+            mean_price = self.model.market.get_mean_price(asset_to_trade.name)
             price_difference = asset_price - mean_price
 
-            print("Price difference: " + str(price_difference))
-
-            # Check if the difference is greater than the mean reversion threshold.
             if abs(price_difference) > self.mean_reversion_threshold:
-
-                # Print the wealth of the agent.
-                print("Agent " + str(self.unique_id) + " has " +
-                      str(self.wealth) + " units of wealth.")
-
                 if self.wealth >= asset_price and asset_to_trade in other.assets:
-
                     self.assets.append(asset_to_trade)
-
                     other.assets.remove(asset_to_trade)
-
                     other.wealth += asset_price
-
                     self.wealth -= asset_price
+
+                    # Submit order to market
+                    self.model.market.submit_order(
+                        self.unique_id, asset_to_trade.name, "bid", asset_price)
 
                     self.confirm_trade(other, asset_to_trade)
 
-                    # Add the updated price history to the asset.
-                    asset_to_trade.add_price_to_history(asset_price)
-
-                    # Print the updated price history.
-                    for price in asset_to_trade.get_price_history():
-
-                        print("The prices in the list are: " + str(price))
-
-                    # Print the mean in the list.
-                    print("The mean in the list is: " +
-                          str(asset_to_trade.get_mean_price()))
-
     def momentum_trade(self, other):
-
-        # Check if the other agent has any assets.
+        """Implements momentum strategy using shared market trends."""
         if len(other.assets) > 0:
-
-            # Choose a random asset to trade.
             asset_to_trade = self.random.choice(other.assets)
 
-            # Print the asset to trade.
             self.print_interest(other, asset_to_trade)
 
-            # Get the price of the asset.
-            asset_price = asset_to_trade.get_price()
+            asset_price = self.model.market.get_price(asset_to_trade.name)
+            asset_trend = self.model.market.get_asset_trend(asset_to_trade.name)
 
-            # Check if the price of the asset is increasing or decreasing.
-            asset_trend = self.get_asset_trend(asset_to_trade)
-
-            print("Asset trend: " + str(asset_trend))
-
-            # If the price is increasing and the agent has enough wealth to trade, trade.
+            # Buy on uptrend
             if asset_trend == 'up' and self.wealth >= asset_price:
-
-                # Take the asset from the other agent.
                 self.assets.append(asset_to_trade)
-
-                # Remove the asset from the other agent.
                 other.assets.remove(asset_to_trade)
-
-                # Give the other agent the price of the asset.
                 other.wealth += asset_price
-
-                # Take the price of the asset from the agent.
                 self.wealth -= asset_price
 
-                # Print the trade.
+                self.model.market.submit_order(
+                    self.unique_id, asset_to_trade.name, "bid", asset_price)
+
                 self.confirm_trade(other, asset_to_trade)
 
-            # If the price is decreasing, wait for the trend to reverse.
+            # Sell on downtrend
             elif asset_trend == 'down' and other.wealth >= asset_price and len(self.assets) > 0:
+                asset_to_sell = self.random.choice(self.assets)
+                sell_price = self.model.market.get_price(asset_to_sell.name)
 
-                # Set the asset to trade to the asset that the other agent is waiting for.
-                asset_to_trade = self.random.choice(self.assets)
+                other.assets.append(asset_to_sell)
+                self.assets.remove(asset_to_sell)
+                self.wealth += sell_price
+                other.wealth -= sell_price
 
-                # Take the asset from the other agent.
-                other.assets.append(asset_to_trade)
+                self.model.market.submit_order(
+                    other.unique_id, asset_to_sell.name, "ask", sell_price)
 
-                # Remove the asset from the other agent.
-                self.assets.remove(asset_to_trade)
-
-                # Give the other agent the price of the asset.
-                self.wealth += asset_price
-
-                # Take the price of the asset from the agent.
-                other.wealth -= asset_price
-
-                # Print that the agent is waiting the trend to reverse.
-                print("Agent " + str(self.unique_id) +
-                      " is waiting for the trend to reverse before buying.")
-
-                # Increment the nunmber of trades.
                 self.trades_completed += 1
 
-            # If the agent does not have enough wealth to trade, wait.
-            else:
+    # ---- COPYCAT STRATEGY ----
 
-                print("Agent " + str(self.unique_id) +
-                      " is waiting to accumulate more wealth before trading.")
-
-    def get_asset_trend(self, asset):
-
-        # Get the asset's price history.
-        price_history = asset.get_price_history()
-
-        asset.add_price_to_history(asset.get_price())
-
-        # Check if the asset is increasing or decreasing.
-        if len(price_history) >= 2 and price_history[-1] > price_history[-2]:
-
-            return 'up'
-
-        elif len(price_history) >= 2 and price_history[-1] < price_history[-2]:
-
-            return 'down'
-
+    def copycat_trade(self, other):
+        """Observe neighbors, copy the wealthiest one's strategy, then trade using it."""
+        # Every 5 steps, look around and potentially switch strategy
+        if self.copy_cooldown <= 0:
+            neighbors = self.model.grid.get_neighbors(
+                self.pos, moore=True, include_center=False, radius=2)
+            if neighbors:
+                wealthiest = max(neighbors, key=lambda a: a.wealth)
+                if wealthiest.wealth > self.wealth and wealthiest.strategy != "Copycat":
+                    self.strategy = wealthiest.strategy
+                    self.copy_cooldown = 5
         else:
+            self.copy_cooldown -= 1
 
-            return 'stable'
+        # Execute using the copied strategy
+        if self.strategy == "Copycat":
+            # Fallback: do asset trading if no strategy copied yet
+            self.asset_trade(other)
+        elif self.strategy == "Asset Trading":
+            self.asset_trade(other)
+        elif self.strategy == "Wealth Trading":
+            self.wealth_trade(other)
+        elif self.strategy == "Mean Reversion":
+            self.mean_reversion(other)
+        elif self.strategy == "Momentum":
+            self.momentum_trade(other)
+        elif self.strategy == "Risk Averse":
+            self.risk_averse_trade(other)
+
+        # Always reset strategy label to Copycat for visualization
+        self.strategy = "Copycat"
+
+    # ---- RISK AVERSE STRATEGY ----
+
+    def risk_averse_trade(self, other):
+        """Trade conservatively — reduce activity when losing wealth."""
+        # Update wealth history and fear level
+        self.wealth_history.append(self.wealth)
+        if len(self.wealth_history) > self.risk_window:
+            self.wealth_history = self.wealth_history[-self.risk_window:]
+
+        # Calculate fear: how much wealth lost recently
+        if len(self.wealth_history) >= 2:
+            recent_change = self.wealth - self.wealth_history[0]
+            if recent_change < 0:
+                # Losing money — fear increases proportional to loss
+                self.fear_level = min(1.0, abs(recent_change) / max(self.initial_wealth, 1))
+            else:
+                # Gaining — fear decays
+                self.fear_level = max(0.0, self.fear_level - 0.1)
+
+        # Update mood based on fear
+        if self.fear_level > 0.7:
+            self.mood = "fearful"
+        elif self.fear_level > 0.3:
+            self.mood = "cautious"
+        else:
+            self.mood = "confident"
+
+        # Fear makes agent skip trades probabilistically
+        if random.random() < self.fear_level:
+            return  # Too scared to trade
+
+        # When confident, look for bargains (buy below mean)
+        if len(other.assets) > 0:
+            asset_to_trade = self.random.choice(other.assets)
+            asset_price = self.model.market.get_price(asset_to_trade.name)
+            mean_price = self.model.market.get_mean_price(asset_to_trade.name)
+
+            # Only buy if price is at or below mean (conservative)
+            if asset_price <= mean_price and self.wealth >= asset_price:
+                self.assets.append(asset_to_trade)
+                other.assets.remove(asset_to_trade)
+                other.wealth += asset_price
+                self.wealth -= asset_price
+
+                self.model.market.submit_order(
+                    self.unique_id, asset_to_trade.name, "bid", asset_price)
+                self.confirm_trade(other, asset_to_trade)
+
+            # Sell if price is well above mean (take profit)
+            elif asset_price > mean_price * 1.2 and len(self.assets) > 0:
+                asset_to_sell = self.random.choice(self.assets)
+                sell_price = self.model.market.get_price(asset_to_sell.name)
+
+                if other.wealth >= sell_price:
+                    other.assets.append(asset_to_sell)
+                    self.assets.remove(asset_to_sell)
+                    self.wealth += sell_price
+                    other.wealth -= sell_price
+
+                    self.model.market.submit_order(
+                        other.unique_id, asset_to_sell.name, "ask", sell_price)
+                    self.trades_completed += 1
+
+    # ---- ADAPTIVE (Q-LEARNING) STRATEGY ----
+
+    def _get_state(self):
+        """Discretize the current state for Q-learning."""
+        # Wealth relative to initial
+        if self.wealth > self.initial_wealth * 1.1:
+            wealth_state = "winning"
+        elif self.wealth < self.initial_wealth * 0.9:
+            wealth_state = "losing"
+        else:
+            wealth_state = "neutral"
+
+        # Market trend (use first asset as proxy)
+        asset_names = self.model.market.get_asset_names()
+        if asset_names:
+            trend = self.model.market.get_asset_trend(asset_names[0])
+        else:
+            trend = "stable"
+
+        # Asset count relative to starting
+        n_assets = len(self.assets)
+        n_market = len(asset_names)
+        if n_assets > n_market:
+            asset_state = "heavy"
+        elif n_assets < n_market:
+            asset_state = "light"
+        else:
+            asset_state = "balanced"
+
+        return (wealth_state, trend, asset_state)
+
+    def _get_q(self, state, action):
+        return self.q_table.get((state, action), 0.0)
+
+    def _choose_action(self, state):
+        """Epsilon-greedy action selection."""
+        actions = ["buy", "sell", "hold"]
+        if random.random() < self.epsilon:
+            return random.choice(actions)
+        q_values = {a: self._get_q(state, a) for a in actions}
+        return max(q_values, key=q_values.get)
+
+    def _update_q(self, reward):
+        """Update Q-value for the last state-action pair."""
+        if self.last_state is None or self.last_action is None:
+            return
+        current_state = self._get_state()
+        actions = ["buy", "sell", "hold"]
+        best_future = max(self._get_q(current_state, a) for a in actions)
+        old_q = self._get_q(self.last_state, self.last_action)
+        new_q = old_q + self.learning_rate * (
+            reward + self.discount_factor * best_future - old_q)
+        self.q_table[(self.last_state, self.last_action)] = new_q
+
+    def adaptive_trade(self, other):
+        """Q-learning agent that learns buy/sell/hold from experience."""
+        # Calculate reward from last action
+        reward = self.wealth - self.last_wealth
+        self._update_q(reward)
+        self.last_wealth = self.wealth
+
+        # Choose action
+        state = self._get_state()
+        action = self._choose_action(state)
+
+        self.last_state = state
+        self.last_action = action
+
+        if action == "buy" and len(other.assets) > 0:
+            asset_to_trade = self.random.choice(other.assets)
+            asset_price = self.model.market.get_price(asset_to_trade.name)
+
+            if self.wealth >= asset_price:
+                self.assets.append(asset_to_trade)
+                other.assets.remove(asset_to_trade)
+                other.wealth += asset_price
+                self.wealth -= asset_price
+
+                self.model.market.submit_order(
+                    self.unique_id, asset_to_trade.name, "bid", asset_price)
+                self.confirm_trade(other, asset_to_trade)
+
+        elif action == "sell" and len(self.assets) > 0:
+            asset_to_sell = self.random.choice(self.assets)
+            sell_price = self.model.market.get_price(asset_to_sell.name)
+
+            if other.wealth >= sell_price:
+                other.assets.append(asset_to_sell)
+                self.assets.remove(asset_to_sell)
+                self.wealth += sell_price
+                other.wealth -= sell_price
+
+                self.model.market.submit_order(
+                    other.unique_id, asset_to_sell.name, "ask", sell_price)
+                self.trades_completed += 1
+
+        # action == "hold": do nothing — agent waits for better conditions
 
     def print_interest(self, other, asset):
-
         print("Agent " + str(self.unique_id) + " is interested in trading for " +
               str(asset.get_name()) + " with Agent " + str(other.unique_id) + ".")
 
     def confirm_trade(self, other, asset):
-
+        asset_price = self.model.market.get_price(asset.name)
         print("Agent " + str(self.unique_id) + " traded " + str(asset.get_name()) + " with Agent " +
-              str(other.unique_id) + " for " + str(asset.get_price()) + " units of wealth.")
-
-        # Increment the number of trades completed.
+              str(other.unique_id) + " for " + str(asset_price) + " units of wealth.")
         self.trades_completed += 1
 
-    def set_price_fluctuation(self, price_fluctuation, iterations):
-
-        if self.model.schedule.time % iterations == 0:
-
-            for asset in self.assets:
-
-                asset.price += price_fluctuation
-
     def add_asset(self, asset):
-
         self.assets.append(asset)
 
     def get_assets(self):
-
         return self.assets
 
     def get_strategy(self):
-
         return self.strategy
 
     def get_mood(self):
-
         return self.mood
 
     def get_wealth(self):
-
         return self.wealth
 
     def get_history(self):
-
         return self.history
 
     def get_unique_id(self):
-
         return self.unique_id
 
     def get_pos(self):
-
         return self.pos
 
-    def get_color(self):
-
-        return self.color
-
-    def get_size(self):
-
-        return self.size
-
-    def get_label(self):
-
-        return self.label
-
     def get_asset_names(self):
-
-        asset_names = []
-
-        for asset in self.assets:
-
-            asset_names.append(asset.get_name())
-
-        return asset_names
+        return [asset.get_name() for asset in self.assets]
 
     def set_treshold(self, mean_reversion_threshold):
-
         self.mean_reversion_threshold = mean_reversion_threshold
 
     def get_threshold(self):
-
         return self.mean_reversion_threshold
 
     def set_mood(self, mood):
-
         self.mood = mood
 
     def set_strategy(self, strategy):
-
         self.strategy = strategy
 
     def set_wealth(self, wealth):
-
         self.wealth = wealth
 
     def set_pos(self, pos):
-
         self.pos = pos
